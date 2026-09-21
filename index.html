@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>国语功能大挑战｜对还是错</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:"Microsoft JhengHei","Noto Sans CJK SC",Arial,sans-serif;background:#f6f1ff;color:#241b35}
+.wrap{max-width:1100px;margin:auto;padding:18px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{margin:0;font-size:30px}.sub{color:#6e647b;font-size:14px}
+.card{background:#fff;border:1px solid #e5def0;border-radius:22px;padding:18px;box-shadow:0 8px 25px rgba(50,30,80,.08);margin-top:15px}
+.top{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center}
+.badge{background:#eee7ff;border-radius:999px;padding:8px 12px;font-weight:800}
+.score{font-size:18px;font-weight:800}
+.question{text-align:center;font-size:28px;font-weight:900;line-height:1.35;padding:20px 10px;min-height:110px;display:flex;align-items:center;justify-content:center}
+.stage{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:14px;align-items:stretch}
+.zone{min-height:280px;border:4px dashed #b7adca;border-radius:22px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-weight:900}
+.zone .big{font-size:44px}.zone small{margin-top:8px;color:#6e647b;font-weight:600}
+.left{background:#edf9ef;border-color:#70b97b}.right{background:#fff0f0;border-color:#e08a8a}
+.camera{background:#17131d;border-radius:22px;overflow:hidden;position:relative;min-height:280px;display:flex;align-items:center;justify-content:center}
+video{width:100%;height:100%;object-fit:cover;display:block}
+canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.camlabel{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.6);color:white;padding:7px 10px;border-radius:999px;font-size:13px}
+.status{font-weight:800;text-align:center;min-height:28px;margin-top:12px}
+.result{font-size:23px;text-align:center;font-weight:900;min-height:36px}
+.controls{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+button{border:0;border-radius:13px;padding:12px 18px;font-weight:900;cursor:pointer;background:#eee7ff;color:#241b35}
+button.primary{background:#6c4bdc;color:#fff}.danger{background:#ffe1e1}
+button:disabled{opacity:.45;cursor:not-allowed}
+.tip{font-size:13px;color:#6e647b;line-height:1.6}
+@media(max-width:800px){.stage{grid-template-columns:1fr}.camera{order:-1}.top{grid-template-columns:1fr 1fr}.question{font-size:22px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div><h1>🎮 国语功能大挑战</h1><div class="sub">学生站到「对」或「错」区域，摄像头自动判断答案</div></div>
+</header>
+
+<div class="card">
+  <div class="top">
+    <div class="badge" id="qnum">第 1 / 15 题</div>
+    <div class="score">⭐ 得分：<span id="score">0</span></div>
+    <div class="badge">⏱️ <span id="timer">10</span> 秒</div>
+  </div>
+  <div class="question" id="question"></div>
+  <div class="stage">
+    <div class="zone left"><div class="big">🟢 对</div><small>站在这里回答「对」</small></div>
+    <div class="camera">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div class="camlabel" id="camStatus">摄像头未启动</div>
+    </div>
+    <div class="zone right"><div class="big">🔴 错</div><small>站在这里回答「错」</small></div>
+  </div>
+  <div class="status" id="status">点击「开始游戏」，允许使用摄像头，然后站到左边或右边。</div>
+  <div class="result" id="result"></div>
+  <div class="controls">
+    <button class="primary" id="start">▶ 开始游戏</button>
+    <button id="next" disabled>➡ 下一题</button>
+    <button class="danger" id="restart">↻ 重新开始</button>
+  </div>
+  <p class="tip">
+    使用提示：请把电脑放在学生前方，让「对」在画面左侧、「错」在画面右侧。学生身体尽量完整进入摄像头画面。
+    本网页使用浏览器摄像头与人体姿态检测；第一次使用时 Chrome 会要求允许摄像头。
+  </p>
+</div>
+</div>
+
+<script type="module">
+import {PoseLandmarker, FilesetResolver} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm";
+
+const questions = [
+ {q:"国语是马来西亚的身份象征。", a:true, f:"身份象征"},
+ {q:"国语只可以用于文学创作。", a:false, f:"文学语言"},
+ {q:"国语可以作为不同种族之间沟通的语言。", a:true, f:"通用语／沟通语言"},
+ {q:"国语是法律事务的官方语言。", a:true, f:"法律语言"},
+ {q:"国语不能用于商业和经济事务。", a:false, f:"商业语言"},
+ {q:"政府进行官方会议时可以使用国语。", a:true, f:"行政语言"},
+ {q:"国语是我国教育体系中的主要教学语言。", a:true, f:"教育语言"},
+ {q:"国语只能由马来族使用。", a:false, f:"通用语"},
+ {q:"国语可以作为我国多元文化社会的沟通工具。", a:true, f:"沟通语言"},
+ {q:"法院处理法律事务时，国语可以作为官方语言。", a:true, f:"法律语言"},
+ {q:"国语完全没有商业功能。", a:false, f:"商业语言"},
+ {q:"官方会议、说明会和政府事务可以使用国语。", a:true, f:"行政语言"},
+ {q:"学校教学与国语没有关系。", a:false, f:"教育语言"},
+ {q:"国语也是我国在世界舞台上的象征。", a:true, f:"身份象征"},
+ {q:"国语的功能只有一种，就是日常聊天。", a:false, f:"国语具有多种功能"}
+];
+
+const video=document.getElementById("video"), canvas=document.getElementById("canvas"), ctx=canvas.getContext("2d");
+const qEl=document.getElementById("question"), qnum=document.getElementById("qnum"), scoreEl=document.getElementById("score");
+const timerEl=document.getElementById("timer"), statusEl=document.getElementById("status"), resultEl=document.getElementById("result"), camStatus=document.getElementById("camStatus");
+const startBtn=document.getElementById("start"), nextBtn=document.getElementById("next"), restartBtn=document.getElementById("restart");
+
+let pose=null, stream=null, running=false, answered=false, idx=0, score=0, timeLeft=10, timerId=null, raf=0, lastDetect=0, lastZone=null, stableSince=0;
+
+function render(){
+  const x=questions[idx];
+  qnum.textContent=`第 ${idx+1} / ${questions.length} 题`;
+  qEl.textContent=x.q;
+  scoreEl.textContent=score;
+  timerEl.textContent="10";
+  resultEl.textContent="";
+  statusEl.textContent="请站到「对」或「错」的区域。";
+  answered=false; lastZone=null; stableSince=0;
+  nextBtn.disabled=true;
+}
+function stopTimer(){if(timerId){clearInterval(timerId);timerId=null}}
+function startTimer(){
+  stopTimer(); timeLeft=10; timerEl.textContent=timeLeft;
+  timerId=setInterval(()=>{
+    if(answered)return;
+    timeLeft--; timerEl.textContent=timeLeft;
+    if(timeLeft<=0){stopTimer(); decide(null,"时间到！");}
+  },1000);
+}
+function decide(zone, reason=""){
+  if(answered)return;
+  answered=true; stopTimer();
+  const correct=questions[idx].a;
+  if(zone===null){
+    resultEl.textContent="⏰ 时间到！";
+    statusEl.textContent=`正确答案是「${correct?"对":"错"}」。`;
+  }else{
+    const chosen=zone==="left";
+    if(chosen===correct){
+      score++; scoreEl.textContent=score;
+      resultEl.textContent="🎉 回答正确！ +1";
+      statusEl.textContent=`${reason||"系统检测到你的答案"}　｜　功能：${questions[idx].f}`;
+    }else{
+      resultEl.textContent="❌ 回答错误";
+      statusEl.textContent=`正确答案：${correct?"对":"错"}　｜　功能：${questions[idx].f}`;
+    }
+  }
+  nextBtn.disabled=false;
+}
+function nextQuestion(){
+  if(idx<questions.length-1){idx++;render();startTimer();}
+  else{
+    stopTimer(); running=false;
+    qEl.textContent="🎊 挑战完成！";
+    resultEl.textContent=`最终得分：${score} / ${questions.length}`;
+    statusEl.textContent=score>=12?"太棒了！你已经掌握了很多国语功能。":"再挑战一次，巩固国语的功能吧！";
+    nextBtn.disabled=true;
+  }
+}
+
+async function initPose(){
+  if(pose)return;
+  camStatus.textContent="正在加载人体检测…";
+  const vision=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm");
+  pose=await PoseLandmarker.createFromOptions(vision,{
+    baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",delegate:"GPU"},
+    runningMode:"VIDEO",numPoses:1,minPoseDetectionConfidence:.55,minPosePresenceConfidence:.55,minTrackingConfidence:.55
+  });
+  camStatus.textContent="人体检测已准备";
+}
+async function startCamera(){
+  if(!navigator.mediaDevices?.getUserMedia)throw new Error("此浏览器不支持摄像头。请使用最新版 Chrome。");
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:false});
+  video.srcObject=stream; await video.play();
+  canvas.width=video.videoWidth||1280; canvas.height=video.videoHeight||720;
+}
+function drawPoint(x,y){
+  ctx.beginPath();ctx.arc(x*canvas.width,y*canvas.height,7,0,Math.PI*2);ctx.fillStyle="#ffffff";ctx.fill();
+}
+function detect(now){
+  if(!running)return;
+  raf=requestAnimationFrame(detect);
+  if(!pose||video.readyState<2||now-lastDetect<100)return;
+  lastDetect=now;
+  const res=pose.detectForVideo(video,now);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!res.landmarks?.length){camStatus.textContent="请进入镜头范围";lastZone=null;stableSince=0;return}
+  const lm=res.landmarks[0];
+  const needed=[11,12,23,24];
+  const pts=needed.map(i=>lm[i]).filter(p=>p && p.visibility>0.45);
+  if(pts.length<2){camStatus.textContent="请让身体更完整地进入画面";return}
+  pts.forEach(p=>drawPoint(p.x,p.y));
+  const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+  const zone=cx<0.5?"left":"right";
+  camStatus.textContent=zone==="left"?"检测：🟢 对区域":"检测：🔴 错区域";
+  if(zone!==lastZone){lastZone=zone;stableSince=now}
+  if(!answered && now-stableSince>900)decide(zone,"系统已稳定检测到位置");
+}
+async function startGame(){
+  try{
+    startBtn.disabled=true;
+    await initPose();
+    await startCamera();
+    running=true; answered=false; idx=0; score=0; render(); startTimer();
+    camStatus.textContent="摄像头已启动";
+    cancelAnimationFrame(raf); raf=requestAnimationFrame(detect);
+  }catch(e){
+    startBtn.disabled=false;
+    statusEl.textContent="无法启动摄像头："+e.message;
+    camStatus.textContent="摄像头启动失败";
+  }
+}
+function restart(){
+  stopTimer(); idx=0; score=0; running=!!stream; render();
+  if(stream){running=true;startTimer();}
+}
+startBtn.addEventListener("click",startGame);
+nextBtn.addEventListener("click",nextQuestion);
+restartBtn.addEventListener("click",restart);
+render();
+</script>
+</body>
+</html>
